@@ -20,12 +20,12 @@ tasks:
       - docker compose stop db
 
   db:setup:
-    desc: Setup the database and the database user used by the greenlight app
+    desc: Setup the database and the database user
     cmds:
       - PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE {{.DB_NAME}};"
 
   db:teardown:
-    desc: Teardown the database and the database user used by the greenlight app
+    desc: Teardown the database
     cmds:
       - PGPASSWORD=postgres psql -U postgres -h localhost -c "DROP DATABASE IF EXISTS {{.DB_NAME}};"
 
@@ -60,14 +60,10 @@ tasks:
   server:start:
     desc: Starts the API server (includes postgres, database setup, and migrations)
     cmds:
-      # Start postgres if not already running
       - docker compose up -d db
       - sleep 2
-      # Create database if it doesn't exist (ignoring errors if it already exists)
       - PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE {{.DB_NAME}};" || true
-      # Run migrations
       - migrate -path ./migrations -database ${DB_DSN} up
-      # Start server
       - go run ./cmd/api {{.CLI_ARGS}}
 
   update:dependencies:
@@ -100,7 +96,7 @@ tasks:
       - govulncheck ./...
 
   test:
-    desc: Run all tests (accepts CLI args, e.g., task test -- -run TestCreateArticleHandler)
+    desc: Run all tests
     cmds:
       - gotestsum -- -coverprofile=coverage.out -coverpkg=./...  ./... {{.CLI_ARGS}}
 
@@ -110,29 +106,21 @@ tasks:
       - go tool cover -html=coverage.out
 
   newman:
-    desc: Run RealWorld API integration tests using Newman (Postman CLI)
+    desc: Run RealWorld API integration tests
     vars:
-      NEWMAN_DB_NAME: conduit_newman_test
       NEWMAN_PORT: 4001
       APIURL: http://localhost:4001
       USERNAME: newman-test-user
       EMAIL: newman@example.com
       PASSWORD: newman-password-123
-    env:
-      DB_DSN: postgres://postgres:postgres@localhost:5432/{{.NEWMAN_DB_NAME}}?sslmode=disable
     cmds:
-      - defer: PGPASSWORD=postgres psql -U postgres -h localhost -c "DROP DATABASE IF EXISTS {{.NEWMAN_DB_NAME}};"
       - defer: pkill -f "./bin/api" || true
-      # Download collection if not exists
       - test -f Conduit.postman_collection.json || curl -o Conduit.postman_collection.json https://raw.githubusercontent.com/gothinkster/realworld/main/api/Conduit.postman_collection.json
-      # Setup test database
-      - PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE {{.NEWMAN_DB_NAME}};"
+      # Use existing DB and run migrations instead of creating a new one to ensure CI compatibility
       - migrate -path ./migrations -database $DB_DSN up
-      # Build and start server on dedicated test port
       - go build -ldflags '-s' -o ./bin/api ./cmd/api
       - ./bin/api -port {{.NEWMAN_PORT}} -db-dsn $DB_DSN -jwt-secret $JWT_SECRET -jwt-issuer $JWT_ISSUER > /tmp/newman-server.log 2>&1 &
       - sleep 3
-      # Run Newman tests
       - |
         newman run Conduit.postman_collection.json \
           --env-var "APIURL={{.APIURL}}" \
@@ -144,25 +132,18 @@ tasks:
           --reporter-json-export newman-results.json
 
   loadtest:
-    desc: "Run load test using hey (creates articles for specified duration and rate). Usage: LOADTEST_DURATION=60 LOADTEST_RATE=20 task loadtest"
+    desc: Run load test
     vars:
       LOADTEST_PORT: 4002
       LOADTEST_DB_NAME: conduit_loadtest
     env:
       DB_DSN: postgres://postgres:postgres@localhost:5432/{{.LOADTEST_DB_NAME}}?sslmode=disable
-      API_URL: http://localhost:{{.LOADTEST_PORT}}
-      LOADTEST_DURATION: 30
-      LOADTEST_RATE: 100
-      NUM_WORKERS: 5000
     cmds:
       - defer: PGPASSWORD=postgres psql -U postgres -h localhost -c "DROP DATABASE IF EXISTS {{.LOADTEST_DB_NAME}};" || true
       - defer: pkill -f "./bin/api.*-port {{.LOADTEST_PORT}}" || true
-      - echo "Setting up load test environment..."
-      # Setup test database
       - PGPASSWORD=postgres psql -U postgres -h localhost -c "CREATE DATABASE {{.LOADTEST_DB_NAME}};" || true
       - migrate -path ./migrations -database $DB_DSN up
       - go build -ldflags '-s' -o ./bin/api ./cmd/api
       - ./bin/api -port {{.LOADTEST_PORT}} -db-dsn $DB_DSN -db-max-open-conns 90 -jwt-secret $JWT_SECRET -jwt-issuer $JWT_ISSUER > /tmp/loadtest-server.log 2>&1 &
       - sleep 3
-      # Run load test
       - bash scripts/loadtest.sh
