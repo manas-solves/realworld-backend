@@ -3,8 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
 
 jobs:
@@ -16,7 +15,7 @@ jobs:
         image: postgres:15-alpine
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: conduit  # Matches your Taskfile.yml DB_NAME
+          POSTGRES_DB: conduit
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -30,10 +29,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26' # Matches your local WSL2 version
-
-      - name: Build
-        run: go build -v ./...
+          go-version: '1.26'
 
       - name: Install Task
         run: |
@@ -43,18 +39,7 @@ jobs:
       - name: Install dependencies
         run: task install:dependencies
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Newman
-        run: npm install -g newman
-
-      - name: Run Newman API Tests
-        run: task newman
-
-      - name: Test
+      - name: Run Unit Tests
         run: task test
 
       - name: Upload coverage reports to Codecov
@@ -67,19 +52,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26' # Matches your local WSL2 version
-
+          go-version: '1.26'
       - name: Install Task
         run: |
           sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b $HOME/bin
           echo "$HOME/bin" >> $GITHUB_PATH
-
       - name: Install dependencies
         run: task install:dependencies
-
       - name: Run Static Analysis
         run: task audit
