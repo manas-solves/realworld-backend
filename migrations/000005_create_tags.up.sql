@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS tags
+(
+    id  SERIAL PRIMARY KEY,
+    tag VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE INDEX idx_tags_tag ON tags (tag);
